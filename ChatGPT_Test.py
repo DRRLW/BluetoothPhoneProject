@@ -1,47 +1,47 @@
-import openai
-import speech_recognition as sr
-import pyttsx3
-from openai import OpenAI
-client = OpenAI()
+import asyncio
+from bleak import BleakClient, BleakScanner
+from datetime import datetime
 
-# 初始化语音合成引擎
-engine = pyttsx3.init()
+# HM-10 蓝牙设备的地址和特征值 UUID
+SERVICE_UUID = "0000ffe0-0000-1000-8000-00805f9b34fb"
+CHARACTERISTIC_UUID = "0000ffe1-0000-1000-8000-00805f9b34fb"
+HM10_ADDRESS = "68:5E:1C:2B:75:8E"  # 替换成你的设备地址！
 
-def listen_and_recognize():
-    recognizer = sr.Recognizer()
-    with sr.Microphone() as source:
-        print("请说话...")
-        audio = recognizer.listen(source)
-    try:
-        print("正在识别...")
-        text = recognizer.recognize_google(audio, language='zh-CN')  # 中文识别
-        print("你说的是：", text)
-        return text
-    except sr.UnknownValueError:
-        print("无法识别语音")
-        return None
-    except sr.RequestError as e:
-        print("识别服务出错；{0}".format(e))
-        return None
+# 存储蓝牙返回数据
+def handle_notify(sender, data):
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    print(f"[{timestamp}] 📥 Arduino 发送: {data.decode(errors='ignore')}")
 
-'''def ask_chatgpt(question):
-    response = openai.ChatCompletion.create(
-        model="gpt-4",
-        messages=[{"role": "user", "content": question}]
-    )
-    answer = response.choices[0].message.content
-    print("ChatGPT：", answer)
-    return answer
+async def main():
+    print("🔍 正在搜索设备...")
+    devices = await BleakScanner.discover()
+    found = False
+    for d in devices:
+        print(f"🔎 找到设备: {d.name} - {d.address}")
+        if d.address.lower() == HM10_ADDRESS.lower():
+            found = True
 
-def speak_text(text):
-    engine.say(text)
-    engine.runAndWait()'''
+    if not found:
+        print("❌ 没有找到指定设备，请确认地址正确或设备已开启。")
+        return
 
-# 主程序
-if __name__ == "__main__":
-    user_input = listen_and_recognize()
-    print(user_input)
-    '''if user_input:
-        reply = ask_chatgpt(user_input)
-        speak_text(reply)'''
+    print(f"🔗 尝试连接 {HM10_ADDRESS} ...")
+    async with BleakClient(HM10_ADDRESS) as client:
+        print("✅ 已连接 HM-10！")
 
+        # 启用通知
+        await client.start_notify(CHARACTERISTIC_UUID, handle_notify)
+
+        try:
+            while True:
+                msg = input("💬 发送内容（输入 exit 退出）：")
+                if msg.lower() == "exit":
+                    break
+                await client.write_gatt_char(CHARACTERISTIC_UUID, msg.encode())
+                await asyncio.sleep(0.1)  # 等待稳定通信
+        except KeyboardInterrupt:
+            print("\n🛑 手动中断")
+
+        await client.stop_notify(CHARACTERISTIC_UUID)
+
+asyncio.run(main())
