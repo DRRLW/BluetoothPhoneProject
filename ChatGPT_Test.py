@@ -40,7 +40,7 @@ async def main():
                 await client.write_gatt_char(CHARACTERISTIC_UUID, msg.encode())
                 await asyncio.sleep(0.1)  # 等待稳定通信
         except KeyboardInterrupt:
-            print("\n🛑 手动中断")
+            print("\n🛑 手动中断" )
 
         await client.stop_notify(CHARACTERISTIC_UUID)
 
