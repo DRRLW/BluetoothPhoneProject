@@ -1,47 +1,33 @@
 import asyncio
-from bleak import BleakClient, BleakScanner
-from datetime import datetime
+from bleak import BleakClient
 
-# HM-10 蓝牙设备的地址和特征值 UUID
+ADDRESS = "68:5E:1C:2B:75:8E"  # 改成你的 MAC 地址
 SERVICE_UUID = "0000ffe0-0000-1000-8000-00805f9b34fb"
-CHARACTERISTIC_UUID = "0000ffe1-0000-1000-8000-00805f9b34fb"
-HM10_ADDRESS = "68:5E:1C:2B:75:8E"  # 替换成你的设备地址！
+CHAR_UUID = "0000ffe1-0000-1000-8000-00805f9b34fb"
 
-# 存储蓝牙返回数据
-def handle_notify(sender, data):
-    timestamp = datetime.now().strftime("%H:%M:%S")
-    print(f"[{timestamp}] 📥 Arduino 发送: {data.decode(errors='ignore')}")
+# 分包函数，每包最多20字节
+def split_message(msg, size=20):
+    return [msg[i:i + size] for i in range(0, len(msg), size)]
 
 async def main():
-    print("🔍 正在搜索设备...")
-    devices = await BleakScanner.discover()
-    found = False
-    for d in devices:
-        print(f"🔎 找到设备: {d.name} - {d.address}")
-        if d.address.lower() == HM10_ADDRESS.lower():
-            found = True
+    async with BleakClient(ADDRESS) as client:
+        print("✅ 连接成功")
 
-    if not found:
-        print("❌ 没有找到指定设备，请确认地址正确或设备已开启。")
-        return
+        def handle_notify(_, data):
+            print("📥 来自 Arduino: ", data.decode(errors="ignore"))
 
-    print(f"🔗 尝试连接 {HM10_ADDRESS} ...")
-    async with BleakClient(HM10_ADDRESS) as client:
-        print("✅ 已连接 HM-10！")
+        await client.start_notify(CHAR_UUID, handle_notify)
 
-        # 启用通知
-        await client.start_notify(CHARACTERISTIC_UUID, handle_notify)
+        while True:
+            text = input("📝 发送消息（exit退出）: ")
+            if text.lower() == "exit":
+                break
 
-        try:
-            while True:
-                msg = input("💬 发送内容（输入 exit 退出）：")
-                if msg.lower() == "exit":
-                    break
-                await client.write_gatt_char(CHARACTERISTIC_UUID, msg.encode())
-                await asyncio.sleep(0.1)  # 等待稳定通信
-        except KeyboardInterrupt:
-            print("\n🛑 手动中断" )
+            chunks = split_message(text + "\n")  # 添加结束符
+            for part in chunks:
+                await client.write_gatt_char(CHAR_UUID, part.encode())
+                await asyncio.sleep(0.1)
 
-        await client.stop_notify(CHARACTERISTIC_UUID)
+        await client.stop_notify(CHAR_UUID)
 
 asyncio.run(main())
