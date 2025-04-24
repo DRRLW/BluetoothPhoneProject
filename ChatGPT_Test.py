@@ -1,50 +1,55 @@
 import asyncio
 from bleak import BleakClient, BleakScanner
 
-# HM-10 BLE UUID
 SERVICE_UUID = "0000ffe0-0000-1000-8000-00805f9b34fb"
 CHARACTERISTIC_UUID = "0000ffe1-0000-1000-8000-00805f9b34fb"
-
-# HM-10 MAC Address
 ADDRESS = "68:5E:1C:2B:75:8E"
+MAX_CHUNK_SIZE = 20
 
-MAX_CHUNK_SIZE = 20  # HM-10 only support up to 20 byte
+reply_event = asyncio.Event()
 
 def handle_notify(_, data):
-    print(f"\n [received message] {data}")
+    print(f"\n[Received] {data}")
     try:
         msg = data.decode('utf-8')
     except UnicodeDecodeError:
         msg = data.decode('utf-8', errors='replace')
-    print(f" [decoded] {msg}")
+    print(f"[Decoded] {msg}")
+    reply_event.set()  # Receive data, set the event
 
 async def main():
-    print("Scanning for available devices...")
+    print("Scanning available devices")
     devices = await BleakScanner.discover()
     for d in devices:
-        print(f"- {d.name} - {d.address}")
+        print(f" {d.name} - {d.address}")
 
-    print(f"\n Attempting to connect {ADDRESS}...")
+    print(f"\nAttempting to connect {ADDRESS}...")
     async with BleakClient(ADDRESS) as client:
-        print("Successfully connected")
+        print("Connected")
 
         await client.start_notify(CHARACTERISTIC_UUID, handle_notify)
 
         while True:
             try:
-                text = input("\n Sending Message（type exit to leave）: ")
+                text = input("\nSending (type exit to leave) ")
             except UnicodeDecodeError:
-                print("Decoding error, please try again。")
+                print("Decoding error, please enter again")
                 continue
 
             if text.lower() == "exit":
                 break
 
-            # Send by different packages
+            reply_event.clear()  # delete the event before sending
             for i in range(0, len(text), MAX_CHUNK_SIZE):
                 chunk = text[i:i+MAX_CHUNK_SIZE]
                 await client.write_gatt_char(CHARACTERISTIC_UUID, chunk.encode())
                 await asyncio.sleep(0.05)
+
+            print("Waiting for response")
+            try:
+                await asyncio.wait_for(reply_event.wait(), timeout=30.0)
+            except asyncio.TimeoutError:
+                print("Timeout: no response")
 
         await client.stop_notify(CHARACTERISTIC_UUID)
         print("Disconnected")
@@ -52,4 +57,4 @@ async def main():
 try:
     asyncio.run(main())
 except KeyboardInterrupt:
-    print("\n Leave the program")
+    print("\nProgram ended")
