@@ -7,15 +7,19 @@ ADDRESS = "68:5E:1C:2B:75:8E"
 MAX_CHUNK_SIZE = 20
 
 reply_event = asyncio.Event()
+buffer = ""
 
 def handle_notify(_, data):
-    print(f"\n[Received] {data}")
+    global buffer
     try:
-        msg = data.decode('utf-8')
+        chunk = data.decode('utf-8')
     except UnicodeDecodeError:
-        msg = data.decode('utf-8', errors='replace')
-    print(f"[Decoded] {msg}")
-    reply_event.set()  # Receive data, set the event
+        chunk = data.decode('utf-8', errors='replace')
+    print(f"\n[Chunk] {chunk}")
+    buffer += chunk
+    if buffer.endswith("\n"):
+        print(f"[Full message] {buffer.strip()}")
+        reply_event.set()
 
 async def main():
     print("Scanning available devices")
@@ -31,7 +35,7 @@ async def main():
 
         while True:
             try:
-                text = input("\nSending (type exit to leave) ")
+                text = input("\nSending (type exit to leave): ")
             except UnicodeDecodeError:
                 print("Decoding error, please enter again")
                 continue
@@ -39,17 +43,21 @@ async def main():
             if text.lower() == "exit":
                 break
 
-            reply_event.clear()  # delete the event before sending
+            global buffer
+            buffer = ""
+            reply_event.clear()
+
             for i in range(0, len(text), MAX_CHUNK_SIZE):
                 chunk = text[i:i+MAX_CHUNK_SIZE]
                 await client.write_gatt_char(CHARACTERISTIC_UUID, chunk.encode())
                 await asyncio.sleep(0.05)
+            await client.write_gatt_char(CHARACTERISTIC_UUID, b"\n")
 
-            print("Waiting for response")
+            print("Waiting for response...")
             try:
                 await asyncio.wait_for(reply_event.wait(), timeout=30.0)
             except asyncio.TimeoutError:
-                print("Timeout: no response")
+                print("Timeout: no complete response received")
 
         await client.stop_notify(CHARACTERISTIC_UUID)
         print("Disconnected")
